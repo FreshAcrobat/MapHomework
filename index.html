@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width-device-width, initial-scale=1.0">
+    <title>天地图示例</title>
+    <script src="https://api.tianditu.gov.cn/api?v=4.0&tk=你的密钥" type="text/javascript"></script>
+    <script src="http://lbs.tianditu.gov.cn/js/lib/jquery/jquery-1.7.2.min.js"></script>
+    <script src="http://lbs.tianditu.gov.cn/js/lib/d3/d3.min.js" charset="utf-8"></script>
+    <script src="http://lbs.tianditu.gov.cn/api/js4.0/opensource/openlibrary/D3SvgOverlay.js"></script>
+    <script src="http://lbs.tianditu.gov.cn/api/js4.0/opensource/openlibrary/CarTrack.js"></script>
+    <script src="trackPoints.js"></script>
+
+    <style type="text/css">
+
+    html, body {
+        width:100%;
+        height:100%;
+        margin:0;
+        font-family: "Microsoft YaHei";
+    }
+
+    #mapWrapper {
+        width:100%;
+        height:100%;
+        position: relative;
+        overflow: hidden;
+    }
+
+    #mapDiv {
+        width:180%;
+        height:200%;
+        position: absolute;
+        left:-40%;
+        top:-50%;
+    }
+
+    #welcomePage {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-image: url('media/background.png');
+        background-size: cover;
+        background-position: center;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+        opacity: 1;
+        transition: opacity 0.5s ease;
+    }
+    
+    #welcomePage.hidden {
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    #welcomeContent {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    #endPage {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-image: url('media/endbackground.png');
+        background-size: cover;
+        background-position: center;
+        display: none;
+        z-index: 10000;
+        opacity: 0;
+        transition: opacity 0.5s ease;
+        overflow: hidden;
+    }
+
+    #endPage.visible {
+        opacity: 1;
+    }
+
+    #textScrollContainer {
+        position: absolute;
+        width: 100%;
+        top: 70%;
+        text-align: center;
+        padding: 0 20px;
+        box-sizing: border-box;
+    }
+
+    @keyframes scrollUp {
+        0% {
+            transform: translateY(0);
+        }
+        100% {
+            transform: translateY(-200%);
+        }
+    }
+
+    .scroll-animation {
+        animation: scrollUp 180s linear infinite;
+    }
+
+    .text-line {
+        margin: 20px 0;
+        width: 100%;
+        text-align: center;
+        opacity: 0;
+        transform: translateY(20px);
+        transition: opacity 1s ease, transform 1s ease;
+        font-size: 40px;
+        line-height: 1.6;
+        color: #333;
+        font-family: "KaiTi", serif;
+        font-weight: bold;
+        text-shadow: 2px 2px 2px rgba(0, 0, 0, 0.3);
+    }
+
+    .text-line.show {
+        opacity: 1;
+        transform: translateY(0);
+    }
+
+    .end-image {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        max-width: 80%;
+        max-height: 80%;
+        transition: opacity 0.5s ease;
+        pointer-events: none;
+    }
+
+    .info-window-title {
+        cursor: pointer;
+        color: #2C64A7;
+    }
+
+    </style>
+
+    <script>
+        var map;
+        var zoom = 7;
+        var targetZoom = 14;
+        var zoomTimes = targetZoom - zoom;
+        var markersCreated = false;
+        var carTrack;
+
+        //动画函数
+        function smoothMove(theMap, targetLngLat, duration = 500){
+            if (!map) return;
+
+            const startCenter = map.getCenter();
+            const startTime = Date.now();
+
+            const easeInOutCubic = (t) => {
+                return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+            };
+
+            const animate = () => {
+                const elapsed = Date.now() - startTime;
+                let progress = Math.min(elapsed / duration, 1);
+
+                const easedProgress = easeInOutCubic(progress);
+
+                const lng = startCenter.lng + (targetLngLat.lng - startCenter.lng) * easedProgress;
+                const lat = startCenter.lat + (targetLngLat.lat - startCenter.lat) * easedProgress;
+
+                map.panTo(new T.LngLat(lng, lat));
+
+                if (progress < 1) {
+                    requestAnimationFrame(animate);
+                }
+            };
+
+            animate();
+        }
+      
+        function onLoad() {
+
+            // 欢迎页
+            setTimeout(function() {
+                var welcomePage = document.getElementById('welcomePage');
+                if (welcomePage) {
+                    welcomePage.classList.add('hidden');
+
+                    setTimeout(function() {
+                        welcomePage.style.display = 'none';
+                    }, 1500);
+                }
+            }, 1800);
+
+            // 初始化地图
+            map = new T.Map("mapDiv");
+
+            // 设置显示地图的中心点和级别
+            map.centerAndZoom(new T.LngLat(119.87811,32.91122), zoom);
+
+            var jiangSuIconNormal = new T.Icon({
+                iconUrl: 'icon/jiangSuIconNormal.png',
+                iconSize: new T.Point(551,503),
+                iconAnchor: new T.Point(73,30)
+            });
+
+            var jiangSuIconHover = new T.Icon({
+                iconUrl: 'icon/jiangSuIconHover.png',
+                iconSize: new T.Point(551,503),
+                iconAnchor: new T.Point(73,30)
+            });
+
+            //省份高亮
+            var startmarker = new T.Marker(new T.LngLat(116.97144,34.994), {icon: jiangSuIconNormal});
+            map.addOverLay(startmarker);
+
+            startmarker.addEventListener('mouseover', function() {
+                this.setIcon(jiangSuIconHover);
+            });
+
+            startmarker.addEventListener('mouseout', function() {
+                this.setIcon(jiangSuIconNormal);
+            });
+
+            startmarker.addEventListener('click', function() {
+                map.removeOverLay(startmarker);
+                
+                var changZhou = new T.LngLat(119.89587,31.80391);
+                smoothMove(map, changZhou);
+
+                function mapZoomIn(){
+                    if (zoomTimes <= 0){
+                        return;
+                    }
+                    map.zoomIn();
+                    zoomTimes -=1;
+                    if (zoomTimes > 0){
+                        setTimeout(mapZoomIn,340);
+                    }
+                }
+                setTimeout(mapZoomIn, 800);
+            });
+
+            //创建标注
+            map.addEventListener("zoomend", function(){
+                var currentZoom = map.getZoom();
+                if (currentZoom >= targetZoom && !markersCreated){
+                    createAllPoints();
+                    markersCreated = true;
+                }
+            });
+
+            //窗口函数
+            function creatMarker(point, content, icon = {}, targetLngLat = null){
+
+                var icon = new T.Icon({
+                    iconUrl: icon.Url,
+                    iconSize: icon.Size,
+                    iconAnchor: icon.Anchor
+                });
+
+                var marker = new T.Marker(point, {icon: icon});
+                map.addOverLay(marker);
+
+                var infoWin = new T.InfoWindow();
+                infoWin.setContent(content);
+                infoWin.setMaxWidth(1000);
+
+                marker.addEventListener("click", function(){
+
+                    map.closeInfoWindow();
+
+                    marker.openInfoWindow(infoWin,{
+                        autoPan: true,
+                        autoPanPadding: new T.Point(800, 450)
+                    });
+
+                    setTimeout(function() {
+                        var titleElement = document.querySelector('.info-window-title');
+                        if (titleElement) {
+                            titleElement.onclick = function() {
+                                if (targetLngLat) {
+                                    smoothMove(map, targetLngLat);
+                                    map.closeInfoWindow();
+                                } else {
+                                    showEndPage();
+                                }
+                            };
+                        }
+                    }, 100);
+
+                });
+
+            return marker;
+
+            } 
+
+            map.addEventListener("click", function(){
+                map.closeInfoWindow();
+            })
+
+            //结束页
+            function showEndPage() {
+
+                var endPage = document.getElementById('endPage');
+                endPage.style.display = 'flex';
+                
+                //var mapWrapper = document.getElementById('mapWrapper');
+                //mapWrapper.style.display = 'none';
+
+                setTimeout(function() {
+                    endPage.classList.add('visible');
+                    
+                    setTimeout(function() {
+                        startTextAnimation();
+                    }, 300);
+                }, 0);
+                
+            }
+
+            function startTextAnimation() {
+                const textContainer = document.getElementById('textScrollContainer');
+                const lines = document.querySelectorAll('.text-line');
+
+                textContainer.classList.add('scroll-animation');
+
+                lines.forEach((line, index) => {
+                    setTimeout(() => {
+                        line.classList.add('show');
+                    }, index * 4500);
+                });
+            }
+
+            function createAllPoints(){
+            
+                var markers = {};
+    
+                //1 中华恐龙园
+                markers.kongLongYuan = creatMarker(
+                    new T.LngLat(119.996660, 31.826160),
+                    "<div style = 'margin:0px; width:440px; height:310px'>" +
+                    "<div class = 'info-window-title' onclick='showEndPage()' style = 'text-align:center; font-size:20px;'>中华恐龙园</div>" +
+                    "<div style = 'text-align:center; font-size:13px;'>国家5A级景区，以恐龙为主题的大型游乐园，被誉为“东方侏罗纪”。</div>" +
+                    "<img src = 'media/kongLongYuan.jpg' width = 100%; height = 84%;'>" +
+                    "</div>",
+                    {
+                        Url: 'icon/kongLongYuan.png',
+                        Size: new T.Point(102, 86),
+                        Anchor: new T.Point(48, 60)
+                    },
+                    new T.LngLat(119.973160, 31.857180)
+                );
+    
+                //2 江南环球港
+                markers.huanQiuGang = creatMarker(
+                    new T.LngLat(119.973160, 31.842180),
+                    "<div style = 'margin:0px; width:460px; height:305px'>" +
+                    "<div class = 'info-window-title' style = 'text-align:center; font-size:20px;'>江南环球港</div>" +
+                    "<div style = 'text-align:center; font-size:13px;'>国家3A级旅游景区，集购物、娱乐、文化、体育于一体的巨型商业旅游综合体。</div>" +
+                    "<img src = 'media/huanQiuGang.webp' width = 100%; height = 83%;'>" +
+                    "</div>",
+                    {
+                        Url: 'icon/huanQiuGang.png',
+                        Size: new T.Point(110, 84),
+                        Anchor: new T.Point(56, 60)
+                    }
+                );
+    
+                //3 怀德站（运河五号）
+                markers.yunHeWuHao = creatMarker(
+                    new T.LngLat(119.93631,31.78225),
+                    "<div style = 'margin:0px; width:300px; height:430px'>" +
+                    "<div class = 'info-window-title' style = 'text-align:center; font-size:20px;'>运河五号</div>" +
+                    "<div style='text-align:center; font-size:13px;'>由老工厂改造的创意街区，是运河文化与工业遗存交汇的艺术地标。</div>" +
+                    "<img src = 'media/yunHeWuHao.jpg' width = 100%; height = 85%;'>" +
+                    "</div>",
+                    {
+                        Url: 'icon/yunHeWuHao.png',
+                        Size: new T.Point(132, 72),
+                        Anchor: new T.Point(56, 60)
+                    },
+                    new T.LngLat(119.94835,31.79681)
+                );
+    
+                //4 南大街站（瞿秋白纪念馆）
+                markers.quQiuBai = creatMarker(
+                    new T.LngLat(119.94835,31.78181),
+                    "<div style = 'margin:0px; width:300px; height:450px'>" +
+                    "<div class = 'info-window-title' style = 'text-align:center; font-size:20px;'>瞿秋白纪念馆</div>" +
+                    "<div style='text-align:center; font-size:13px;'>“常州三杰”之一瞿秋白的纪念地，传承红色基因的爱国主义教育基地。</div>" +
+                    "<img src = 'media/quQiuBai.jpg' width = 100%; height = 85%;'>" +
+                    "</div>",
+                    {
+                        Url: 'icon/quQiuBai.png',
+                        Size: new T.Point(110, 84),
+                        Anchor: new T.Point(52, 60)
+                    },
+                    new T.LngLat(119.95994,31.79253)
+                );
+    
+                //5 文化宫站（青果巷）
+                markers.qingGuoXiang = creatMarker(
+                    new T.LngLat(119.95994,31.77753),
+                    "<div style = 'margin:0px; width:550px; height:370px'>" +
+                    "<div class = 'info-window-title' style = 'text-align:center; font-size:20px;'>青果巷</div>" +
+                    "<div style='text-align:center; font-size:13px;'>“江南名士第一巷”，明清古宅林立，走出了赵元任、盛宣怀等诸多名士。</div>" +
+                    "<video style = 'width:100%; height:85% 'src = 'media/qingGuoXiang.mp4' autoplay loop controls></video>" +
+                    "</div>",
+                    {
+                        Url: 'icon/qingGuoXiang.png',
+                        Size: new T.Point(136, 82),
+                        Anchor: new T.Point(68, 60)
+                    },
+                    new T.LngLat(119.96951,31.78725)
+                );
+    
+                //6 红梅公园站（红梅公园）
+                markers.hongMeiGongYuan = creatMarker(
+                    new T.LngLat(119.96951,31.77225),
+                    "<div style = 'margin:0px; width:450px; height:350px'>" +
+                    "<div class = 'info-window-title' style = 'text-align:center; font-size:20px;'>红梅公园</div>" +
+                    "<div style='text-align:center; font-size:13px;'>常州第一园林，园内红梅阁与文笔塔交相辉映，是城市中心的绿色客厅。</div>" +
+                    "<img src = 'media/hongMeiGongYuan.webp' width = 100%; height = 85%;'>" +
+                    "<audio style='width:100%; height:0%' src='media/hongMeiGongYuan.mp3' autoplay loop></audio>" +
+                    "</div>",
+                    {
+                        Url: 'icon/hongMeiGongYuan.png',
+                        Size: new T.Point(114, 128),
+                        Anchor: new T.Point(54, 60)
+                    },
+                    new T.LngLat(119.919720, 31.720500)
+                );
+    
+                //7 春秋淹城遗址
+                markers.yanCheng = creatMarker(
+                    new T.LngLat(119.919720, 31.705500),
+                    "<div style = 'margin:0px; width:300px; height:450px'>" +
+                    "<div class = 'info-window-title' style = 'text-align:center; font-size:20px;'>春秋淹城遗址</div>" +
+                    "<div style='text-align:center; font-size:13px;'>中国保存最完整的春秋地面城池遗址，“三城三河”形制具有世界级意义。</div>" +
+                    "<img src = 'media/yanCheng.jpg' width = 100%; height = 85%;'>" +
+                    "</div>",
+                    {
+                        Url: 'icon/yanCheng.png',
+                        Size: new T.Point(102, 98),
+                        Anchor: new T.Point(50, 60)
+                    },
+                    new T.LngLat(119.908810, 31.729480)
+                );
+    
+                //8 宝林寺
+                markers.baoLinSi = creatMarker(
+                    new T.LngLat(119.908810, 31.714480),
+                    "<div style = 'margin:0px; width:300px; height:450px'>" +
+                    "<div class = 'info-window-title' style = 'text-align:center; font-size:20px;'>宝林寺</div>" +
+                    "<div style='text-align:center; font-size:13px;'>齐梁古寺，寺内观音阁高耸，是淹城旅游区内重要的佛教文化场所。</div>" +
+                    "<img src = 'media/baoLinSi.webp' width = 100%; height = 85%;'>" +
+                    "</div>",
+                    {
+                        Url: 'icon/baoLinSi.png',
+                        Size: new T.Point(114, 96),
+                        Anchor: new T.Point(54, 60)
+                    },
+                    new T.LngLat(119.996660, 31.841160)
+                );
+
+                //小车轨迹
+                try {
+                    carTrack = new T.CarTrack(map, {
+                        interval: 20,
+                        speed: 30,
+                        dynamicLine: true,
+                        Datas: trackPoints,
+                        polylinestyle: { color: "#2C64A7", width: 5, opacity: 0.9 }
+                    });
+                } catch (e) {
+                    console.warn('初始化 CarTrack 时出错：', e);
+                }
+            }
+
+        }
+    </script>
+</head>
+<body onload="onLoad()">
+
+    <div id = "welcomePage">
+        <div id = "welcomeContent">
+            <img src = 'media/title.png' width = 60%; height = 50%>
+            <img src = 'media/subtitle.png' width = 70%; height = 37%>
+        </div>
+    </div>
+
+    <div id="mapWrapper">
+        <div id="mapDiv"></div>
+    </div>
+    
+    <div style = "position:fixed; left:10px; bottom:10px; z-index:9998; background:rgba(255,255,255,0.9); padding:8px; border-radius:4px; box-shadow:0 1px 4px rgba(0,0,0,0.2);">
+
+        <div style = "margin-bottom:8px; font-size:12px; font-weight:bold; color:#333;">小车路线控制</div>
+        <input type = "button" value = "开始" onclick="if(window.carTrack) window.carTrack.start(); else alert('CarTrack 未初始化');"/>
+        <input type = "button" value = "暂停" onclick="if(window.carTrack) window.carTrack.pause(); else alert('CarTrack 未初始化');"/>
+        <input type = "button" value = "停止" onclick="if(window.carTrack) window.carTrack.stop(); else alert('CarTrack 未初始化');"/>
+    </div>
+
+    <div id = "endPage">
+        <div id="textScrollContainer">
+        <div class="text-line">当我们从二号线的工业遗存走向一号线的摩天轮，</div>
+        <div class="text-line">这座城市的肌理已不再是地图上的线条与轨道。</div>
+        <div class="text-line">它是无数个"我"的集合——</div>
+        <div class="text-line">是运河波涛里灯火阑珊的倒影，</div>
+        <div class="text-line">是青果巷深处传来悠悠的陶笛情歌，</div>
+        <div class="text-line">是宝林寺的一支摇曳的香火，</div>
+        <div class="text-line">照亮了一双又一双真挚的眼眸。</div>
+        <div class="text-line">常州的美，不在凝固的"古"，不在悬浮的"新"，</div>
+        <div class="text-line">而在于时间的韧性。</div>
+        <div class="text-line">它让春秋遗迹与宇宙体验馆共享一片星空，</div>
+        <div class="text-line">它让纺织厂的梁柱支起3D打印工作室的屋顶。</div>
+        <div class="text-line">地铁不只是交通工具，更是城市记忆的神经脉络，</div>
+        <div class="text-line">将"毗陵"的文化血脉与"龙城"的腾飞之势编织成常州人民的生命坐标，</div>
+        <div class="text-line">在这片土地上生生不息。</div>
+        <div class="text-line">常州，教我如何不想她！</div>
+        <div class="text-line">&nbsp;</div>
+        <div class="text-line">&nbsp;</div>
+        <div class="text-line">小组成员：陈香 吴晟祺</div>
+        <div class="text-line">吴承霖 关泽锋 刘永乐</div>
+    </div>
+    </div>
+</body>
+</html>
